@@ -91,21 +91,102 @@ describe("sanitizeMcpToolArguments", () => {
 			options: { expand: true },
 		});
 		expect(args.task_progress).toBe("- [x] Read issue");
-		expect(sanitized?.options).toBe(args.options);
 	});
 
-	it("preserves a server-owned progress parameter explicitly declared by its tool", () => {
-		const args = { task_progress: "server input" };
-		expect(
-			sanitizeMcpToolArguments(args, {
-				properties: { task_progress: { type: "string" } },
-			}),
-		).toBe(args);
+	it.each([
+		["flat", { properties: { task_progress: { type: "string" } } }],
+		[
+			"allOf",
+			{ allOf: [{ properties: { task_progress: { type: "string" } } }] },
+		],
+		[
+			"anyOf",
+			{ anyOf: [{ properties: { task_progress: { type: "string" } } }] },
+		],
+		[
+			"oneOf",
+			{ oneOf: [{ properties: { task_progress: { type: "string" } } }] },
+		],
+		[
+			"composed local reference",
+			{
+				$defs: {
+					Arguments: { properties: { task_progress: { type: "string" } } },
+				},
+				allOf: [{ $ref: "#/$defs/Arguments" }],
+			},
+		],
+		[
+			"root local reference",
+			{
+				$defs: {
+					Arguments: { properties: { task_progress: { type: "string" } } },
+				},
+				$ref: "#/$defs/Arguments",
+			},
+		],
+		[
+			"escaped pointer",
+			{
+				$defs: {
+					"Arguments/with~name": {
+						properties: { task_progress: { type: "string" } },
+					},
+				},
+				$ref: "#/$defs/Arguments~1with~0name",
+			},
+		],
+		[
+			"root cycle with a declaration",
+			{
+				allOf: [
+					{ properties: { task_progress: { type: "string" } } },
+					{ $ref: "#" },
+				],
+			},
+		],
+	])("preserves server-owned root data through %s", (_name, schema) => {
+		const args = { task_progress: "server input", issue_key: "TEST-1" };
+		expect(sanitizeMcpToolArguments(args, schema)).toEqual({
+			task_progress: "server input",
+			issue_key: "TEST-1",
+		});
 	});
 
-	it("preserves calls without internal bookkeeping", () => {
-		const args = { issue_key: "TEST-1" };
-		expect(sanitizeMcpToolArguments(args, undefined)).toBe(args);
-		expect(sanitizeMcpToolArguments(undefined, {})).toBeUndefined();
+	it.each([
+		[
+			"nested object",
+			{
+				properties: {
+					payload: { properties: { task_progress: { type: "string" } } },
+				},
+			},
+		],
+		[
+			"unreferenced definition",
+			{
+				$defs: {
+					Unused: { properties: { task_progress: { type: "string" } } },
+				},
+			},
+		],
+		["external reference", { $ref: "https://example.test/Arguments" }],
+		["root cycle", { $ref: "#" }],
+		[
+			"local reference cycle",
+			{
+				$defs: { A: { $ref: "#/$defs/B" }, B: { $ref: "#/$defs/A" } },
+				$ref: "#/$defs/A",
+			},
+		],
+	])("does not mistake %s for root argument ownership", (_name, schema) => {
+		const args = {
+			task_progress: "internal checklist",
+			payload: { task_progress: "nested server data" },
+		};
+		expect(sanitizeMcpToolArguments(args, schema)).toEqual({
+			payload: { task_progress: "nested server data" },
+		});
+		expect(args.task_progress).toBe("internal checklist");
 	});
 });

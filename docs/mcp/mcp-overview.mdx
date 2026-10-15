@@ -16,6 +16,9 @@ Cline's internal `task_progress` checklist is removed from MCP call arguments
 before dispatch, so strict servers do not reject focus-chain bookkeeping.
 A tool that explicitly declares its own `task_progress` input retains that
 server-defined argument; the original local argument object is not modified.
+Root `allOf`/`anyOf`/`oneOf` branches and local JSON-Pointer references count
+as declarations. A nested object's field does not declare a root argument,
+and external references are not fetched.
 
 ## Quick start
 

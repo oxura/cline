@@ -50,6 +50,79 @@ export function formatMcpTimeoutErrorMessage(
 	);
 }
 
+const MCP_ROOT_SCHEMA_COMPOSITIONS = ["allOf", "anyOf", "oneOf"] as const;
+
+function isMcpSchemaObject(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Follow only schemas that apply to the root argument object, not its children. */
+function declaresRootTaskProgress(inputSchema: unknown): boolean {
+	if (!isMcpSchemaObject(inputSchema)) return false;
+	if (
+		isMcpSchemaObject(inputSchema.properties) &&
+		Object.hasOwn(inputSchema.properties, "task_progress")
+	) {
+		return true;
+	}
+	if (
+		!Array.isArray(inputSchema.allOf) &&
+		!Array.isArray(inputSchema.anyOf) &&
+		!Array.isArray(inputSchema.oneOf) &&
+		typeof inputSchema.$ref !== "string"
+	) {
+		return false;
+	}
+
+	const pending: unknown[] = [inputSchema];
+	const visited = new Set<object>();
+	while (pending.length > 0) {
+		const schema = pending.pop();
+		if (!isMcpSchemaObject(schema) || visited.has(schema)) continue;
+		visited.add(schema);
+		if (
+			isMcpSchemaObject(schema.properties) &&
+			Object.hasOwn(schema.properties, "task_progress")
+		) {
+			return true;
+		}
+		for (const key of MCP_ROOT_SCHEMA_COMPOSITIONS) {
+			const branches = schema[key];
+			if (Array.isArray(branches)) {
+				for (const branch of branches) pending.push(branch);
+			}
+		}
+		if (typeof schema.$ref !== "string" || !schema.$ref.startsWith("#")) {
+			continue;
+		}
+		let pointer: string;
+		try {
+			pointer = decodeURIComponent(schema.$ref.slice(1));
+		} catch {
+			continue;
+		}
+		if (pointer === "") {
+			pending.push(inputSchema);
+		} else if (pointer.startsWith("/")) {
+			let target: unknown = inputSchema;
+			for (const token of pointer.slice(1).split("/")) {
+				const key = token.replace(/~1/g, "/").replace(/~0/g, "~");
+				if (
+					target === null ||
+					typeof target !== "object" ||
+					!Object.hasOwn(target, key)
+				) {
+					target = undefined;
+					break;
+				}
+				target = Reflect.get(target, key);
+			}
+			pending.push(target);
+		}
+	}
+	return false;
+}
+
 /**
  * Focus-chain bookkeeping is not an MCP argument unless the tool declares it.
  * Keep the caller's object intact because local progress tracking may still use it.
@@ -59,14 +132,7 @@ export function sanitizeMcpToolArguments(
 	inputSchema: unknown,
 ): Record<string, unknown> | undefined {
 	if (!args || !Object.hasOwn(args, "task_progress")) return args;
-	if (
-		inputSchema !== null &&
-		typeof inputSchema === "object" &&
-		"properties" in inputSchema &&
-		inputSchema.properties !== null &&
-		typeof inputSchema.properties === "object" &&
-		Object.hasOwn(inputSchema.properties, "task_progress")
-	) {
+	if (declaresRootTaskProgress(inputSchema)) {
 		return args;
 	}
 	const { task_progress: _taskProgress, ...serverArguments } = args;
