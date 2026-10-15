@@ -205,6 +205,7 @@ function isSkillsToolEnabledForSession(input: {
 const SKILLS_PROBE_EXECUTOR = (async () => "") as SkillsExecutorWithMetadata;
 
 async function loadConfiguredMcpTools(options: {
+	cwd: string;
 	logger?: BasicLogger;
 	includeSettings: boolean;
 	agentPluginServers?: ReadonlyArray<AgentPluginPackageMcpServer>;
@@ -226,10 +227,21 @@ async function loadConfiguredMcpTools(options: {
 		restrictConfiguredHeadersToOrigin: true,
 	});
 	const manager = new InMemoryMcpManager({
-		clientFactory: (registration) =>
-			registration.metadata?.source === "agent-plugin"
-				? agentPluginClientFactory(registration)
-				: settingsClientFactory(registration),
+		clientFactory: (registration) => {
+			const factory =
+				registration.metadata?.source === "agent-plugin"
+					? agentPluginClientFactory
+					: settingsClientFactory;
+			return factory(
+				registration.transport.type === "stdio" &&
+					registration.transport.cwd === undefined
+					? {
+							...registration,
+							transport: { ...registration.transport, cwd: options.cwd },
+						}
+					: registration,
+			);
+		},
 	});
 
 	let registrations: Awaited<
@@ -588,6 +600,7 @@ export class DefaultRuntimeBuilder implements RuntimeBuilder {
 				agentPluginMcpServers?.length
 			) {
 				const mcpRuntime = await loadConfiguredMcpTools({
+					cwd: config.cwd,
 					logger: config.logger,
 					includeSettings: !normalized.disableMcpSettingsTools,
 					agentPluginServers: agentPluginMcpServers,

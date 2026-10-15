@@ -451,6 +451,7 @@ Design implication:
 
 - higher-level integrations should prefer feeding those seams rather than patching agent internals directly.
 - the local runtime bootstrap lives in `packages/core/src/services/local-runtime-bootstrap.ts` and feeds the builder rather than bypassing it
+- settings-backed and Agent Plugin stdio MCP servers inherit the session `cwd` unless their transport explicitly configures one; the detached hub's process directory is not a session workspace.
 
 ### 3. Runtime Host Boundary
 

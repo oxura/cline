@@ -94,6 +94,12 @@ Without `--yes`, `cline mcp add` opens the add wizard with those fields filled i
 }
 ```
 
+Local servers run from the current session's workspace directory (the first
+workspace folder in the VS Code extension), not from the Cline or editor
+installation directory. Set `"cwd": "/absolute/path/to/project"` on a server
+to override this default. With no open workspace, the extension retains the
+editor process's working directory.
+
 ### Remote server (Streamable HTTP)
 
 ```json

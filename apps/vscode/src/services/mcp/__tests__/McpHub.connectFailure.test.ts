@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test"
 import { StateManager } from "@core/storage/StateManager"
 import sinon from "sinon"
+import { stubWorkspacePaths } from "@/test/host-provider-test-utils"
 import { McpHub } from "../McpHub"
 
 /**
@@ -16,6 +17,7 @@ describe("McpHub connect failure", () => {
 
 	beforeEach(() => {
 		sandbox = sinon.createSandbox()
+		stubWorkspacePaths(sandbox, [])
 		sandbox.stub(StateManager, "get").returns({
 			getRemoteConfigSettings: () => ({}),
 		} as unknown as StateManager)

@@ -484,7 +484,7 @@ export class McpHub {
 					transport = new StdioClientTransport({
 						command: expandedConfig.command,
 						args: expandedConfig.args,
-						cwd: expandedConfig.cwd,
+						cwd: expandedConfig.cwd ?? (await HostProvider.workspace.getWorkspacePaths({})).paths[0],
 						env: {
 							...getDefaultEnvironment(),
 							...(expandedConfig.env || {}), // Now has expanded environment variables

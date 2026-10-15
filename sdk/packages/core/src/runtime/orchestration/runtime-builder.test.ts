@@ -515,8 +515,18 @@ Use the review guidance.`,
 		await expect(runtime.shutdown("test")).resolves.toBeUndefined();
 	});
 
-	it("includes MCP tools from configured servers", async () => {
-		const tempRoot = mkdtempSync(join(tmpdir(), "runtime-builder-mcp-"));
+	it.each([
+		false,
+		true,
+	])("starts MCP in the workspace unless cwd is configured (%s)", async (explicitCwd) => {
+		const tempRoot = realpathSync.native(
+			mkdtempSync(join(tmpdir(), "runtime-builder-mcp-")),
+		);
+		tempDirs.push(tempRoot);
+		const workspaceRoot = join(tempRoot, "workspace");
+		const configuredRoot = join(tempRoot, "configured");
+		mkdirSync(workspaceRoot);
+		mkdirSync(configuredRoot);
 		const serverPath = join(tempRoot, "mock-mcp-server.js");
 		const settingsPath = join(tempRoot, "cline_mcp_settings.json");
 		const previousSettingsPath = process.env.CLINE_MCP_SETTINGS_PATH;
@@ -533,11 +543,11 @@ function handle(message) {
     return;
   }
   if (message.method === "tools/list") {
-    write({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "echo", description: "Echo tool", inputSchema: { type: "object", properties: { value: { type: "string" } }, required: [] } }] } });
+    write({ jsonrpc: "2.0", id: message.id, result: { tools: [{ name: "current_dir", description: "Report the actual server working directory", inputSchema: { type: "object", properties: {}, required: [] } }] } });
     return;
   }
   if (message.method === "tools/call") {
-    write({ jsonrpc: "2.0", id: message.id, result: { echoed: message.params?.arguments?.value ?? null } });
+    write({ jsonrpc: "2.0", id: message.id, result: { content: [{ type: "text", text: process.cwd() }] } });
   }
 }
 process.stdin.on("data", (chunk) => {
@@ -563,6 +573,7 @@ process.stdin.on("data", (chunk) => {
 						mock: {
 							command: process.execPath,
 							args: [serverPath],
+							cwd: explicitCwd ? configuredRoot : undefined,
 						},
 					},
 				},
@@ -575,10 +586,26 @@ process.stdin.on("data", (chunk) => {
 		process.env.CLINE_MCP_SETTINGS_PATH = settingsPath;
 		try {
 			const runtime = await new DefaultRuntimeBuilder().build({
-				config: makeBaseConfig(),
+				config: makeBaseConfig({ cwd: workspaceRoot }),
 			});
-			expect(runtime.tools.map((tool) => tool.name)).toContain("mock__echo");
-			await runtime.shutdown("test");
+			try {
+				const tool = runtime.tools.find(
+					(entry) => entry.name === "mock__current_dir",
+				);
+				if (!tool) throw new Error("MCP cwd tool was not registered");
+				expect(
+					await tool.execute({}, { agentId: "test", iteration: 1 }),
+				).toEqual({
+					content: [
+						{
+							type: "text",
+							text: explicitCwd ? configuredRoot : workspaceRoot,
+						},
+					],
+				});
+			} finally {
+				await runtime.shutdown("test");
+			}
 		} finally {
 			process.env.CLINE_MCP_SETTINGS_PATH = previousSettingsPath;
 		}
