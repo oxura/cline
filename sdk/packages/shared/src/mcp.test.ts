@@ -7,6 +7,7 @@ import {
 	MAX_MCP_TIMEOUT_SECONDS,
 	MIN_MCP_TIMEOUT_SECONDS,
 	resolveMcpTimeoutSeconds,
+	sanitizeMcpToolArguments,
 } from "./mcp";
 
 describe("resolveMcpTimeoutSeconds", () => {
@@ -71,5 +72,40 @@ describe("formatMcpTimeoutErrorMessage", () => {
 		).toBe(
 			'MCP request to "slow-server" (initialize) timed out after 1.5s. Increase the "timeout" field (in seconds) for this server in cline_mcp_settings.json.',
 		);
+	});
+});
+
+describe("sanitizeMcpToolArguments", () => {
+	it("removes internal progress without mutating the caller or other arguments", () => {
+		const args = {
+			issue_key: "TEST-1",
+			task_progress: "- [x] Read issue",
+			options: { expand: true },
+		};
+		const sanitized = sanitizeMcpToolArguments(args, {
+			type: "object",
+			properties: { issue_key: { type: "string" } },
+		});
+		expect(sanitized).toEqual({
+			issue_key: "TEST-1",
+			options: { expand: true },
+		});
+		expect(args.task_progress).toBe("- [x] Read issue");
+		expect(sanitized?.options).toBe(args.options);
+	});
+
+	it("preserves a server-owned progress parameter explicitly declared by its tool", () => {
+		const args = { task_progress: "server input" };
+		expect(
+			sanitizeMcpToolArguments(args, {
+				properties: { task_progress: { type: "string" } },
+			}),
+		).toBe(args);
+	});
+
+	it("preserves calls without internal bookkeeping", () => {
+		const args = { issue_key: "TEST-1" };
+		expect(sanitizeMcpToolArguments(args, undefined)).toBe(args);
+		expect(sanitizeMcpToolArguments(undefined, {})).toBeUndefined();
 	});
 });

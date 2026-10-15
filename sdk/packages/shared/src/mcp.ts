@@ -49,3 +49,26 @@ export function formatMcpTimeoutErrorMessage(
 		`Increase the "timeout" field (in seconds) for this server in cline_mcp_settings.json.`
 	);
 }
+
+/**
+ * Focus-chain bookkeeping is not an MCP argument unless the tool declares it.
+ * Keep the caller's object intact because local progress tracking may still use it.
+ */
+export function sanitizeMcpToolArguments(
+	args: Record<string, unknown> | undefined,
+	inputSchema: unknown,
+): Record<string, unknown> | undefined {
+	if (!args || !Object.hasOwn(args, "task_progress")) return args;
+	if (
+		inputSchema !== null &&
+		typeof inputSchema === "object" &&
+		"properties" in inputSchema &&
+		inputSchema.properties !== null &&
+		typeof inputSchema.properties === "object" &&
+		Object.hasOwn(inputSchema.properties, "task_progress")
+	) {
+		return args;
+	}
+	const { task_progress: _taskProgress, ...serverArguments } = args;
+	return serverArguments;
+}

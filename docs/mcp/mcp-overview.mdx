@@ -12,6 +12,11 @@ MCP (Model Context Protocol) lets Cline use external tools and data sources thro
 - Add custom tools beyond built-in Cline tools
 - Use either local servers or remote hosted servers
 
+Cline's internal `task_progress` checklist is removed from MCP call arguments
+before dispatch, so strict servers do not reject focus-chain bookkeeping.
+A tool that explicitly declares its own `task_progress` input retains that
+server-defined argument; the original local argument object is not modified.
+
 ## Quick start
 
 1. Open **MCP Servers** in Cline

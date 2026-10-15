@@ -1,4 +1,8 @@
-import { type AgentTool, createTool } from "@cline/shared";
+import {
+	type AgentTool,
+	createTool,
+	sanitizeMcpToolArguments,
+} from "@cline/shared";
 import { defaultMcpToolNameTransform } from "./name-transform";
 import type { CreateMcpToolsOptions, McpToolDescriptor } from "./types";
 
@@ -37,10 +41,12 @@ export async function createMcpTools(
 				options.provider.callTool({
 					serverName: options.serverName,
 					toolName: descriptor.name,
-					arguments:
+					arguments: sanitizeMcpToolArguments(
 						input && typeof input === "object" && !Array.isArray(input)
 							? (input as Record<string, unknown>)
 							: undefined,
+						descriptor.inputSchema,
+					),
 					context,
 				}),
 		});

@@ -1,4 +1,5 @@
 import { setTimeout as setTimeoutPromise } from "node:timers/promises"
+import { sanitizeMcpToolArguments } from "@cline/shared"
 import { sendMcpServersUpdate } from "@core/controller/mcp/subscribeToMcpServers"
 import { getMcpSettingsFilePath as getMcpSettingsFilePathHelper } from "@core/storage/disk"
 import { StateManager } from "@core/storage/StateManager"
@@ -1715,7 +1716,11 @@ export class McpHub {
 					method: "tools/call",
 					params: {
 						name: toolName,
-						arguments: toolArguments ?? {},
+						arguments:
+							sanitizeMcpToolArguments(
+								toolArguments,
+								connection.server.tools?.find((tool) => tool.name === toolName)?.inputSchema,
+							) ?? {},
 					},
 				},
 				CallToolResultSchema,
