@@ -41,6 +41,11 @@ serialization. If it appears in `ai_sdk_prompt` but not `pre_build_for_api`, the
 issue is in Cline's final provider formatting/build step. If it is already in
 `pre_build_for_api`, the issue is upstream of the final build step.
 
+OpenAI-compatible Chat Completions requests use `max_completion_tokens` for
+o-series and GPT-5/GPT-6 model IDs, including namespaced or Azure deployment
+variants. Classic models retain `max_tokens`; an explicitly supplied
+`max_completion_tokens` takes precedence over the generic output limit.
+
 ## Environment Variables
 
 | Variable | Values | Default | Purpose |
