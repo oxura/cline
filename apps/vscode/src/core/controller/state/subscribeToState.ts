@@ -1,13 +1,46 @@
-import { EmptyRequest } from "@shared/proto/cline/common"
-import { State } from "@shared/proto/cline/state"
+import type { EmptyRequest } from "@shared/proto/cline/common"
+import type { State } from "@shared/proto/cline/state"
 import { telemetryService } from "@/services/telemetry"
-import { ExtensionState } from "@/shared/ExtensionMessage"
+import type { ExtensionState } from "@/shared/ExtensionMessage"
 import { Logger } from "@/shared/services/Logger"
-import { getRequestRegistry, StreamingResponseHandler } from "../grpc-handler"
-import { Controller } from "../index"
+import type { StreamingResponseHandler } from "../grpc-handler"
+import { getRequestRegistry } from "../grpc-handler"
+import type { Controller } from "../index"
 
-// Keep track of active state subscriptions
-const activeStateSubscriptions = new Set<StreamingResponseHandler<State>>()
+interface StateSubscription {
+	responseStream: StreamingResponseHandler<State>
+	delivering: boolean
+	closed: boolean
+	pendingStateJson?: string
+}
+
+const activeStateSubscriptions = new Set<StateSubscription>()
+
+function closeSubscription(subscription: StateSubscription): void {
+	subscription.closed = true
+	subscription.pendingStateJson = undefined
+	activeStateSubscriptions.delete(subscription)
+}
+
+async function deliverState(subscription: StateSubscription, stateJson: string): Promise<void> {
+	if (subscription.closed) return
+	subscription.pendingStateJson = stateJson
+	if (subscription.delivering) return
+
+	subscription.delivering = true
+	try {
+		while (!subscription.closed && subscription.pendingStateJson !== undefined) {
+			const next = subscription.pendingStateJson
+			subscription.pendingStateJson = undefined
+			await subscription.responseStream({ stateJson: next }, false)
+		}
+	} catch (error) {
+		Logger.error("Error sending state update:", error)
+		closeSubscription(subscription)
+	} finally {
+		subscription.delivering = false
+	}
+}
 
 /**
  * Subscribe to state updates
@@ -22,13 +55,11 @@ export async function subscribeToState(
 	responseStream: StreamingResponseHandler<State>,
 	requestId?: string,
 ): Promise<void> {
-	// Add this subscription to the active subscriptions
-	activeStateSubscriptions.add(responseStream)
+	const subscription: StateSubscription = { responseStream, delivering: false, closed: false }
+	activeStateSubscriptions.add(subscription)
 
-	// Register cleanup when the connection is closed
-	const cleanup = () => {
-		activeStateSubscriptions.delete(responseStream)
-	}
+	// Cancellation discards the queued snapshot even if delivery is still blocked.
+	const cleanup = () => closeSubscription(subscription)
 
 	// Register the cleanup function with the request registry if we have a requestId
 	if (requestId) {
@@ -41,17 +72,7 @@ export async function subscribeToState(
 
 	recordStateSizeTelemetry(Buffer.byteLength(initialStateJson, "utf8"))
 
-	try {
-		await responseStream(
-			{
-				stateJson: initialStateJson,
-			},
-			false, // Not the last message
-		)
-	} catch (error) {
-		Logger.error("Error sending initial state:", error)
-		activeStateSubscriptions.delete(responseStream)
-	}
+	await deliverState(subscription, initialStateJson)
 }
 
 /**
@@ -69,19 +90,11 @@ export async function sendStateUpdate(state: ExtensionState): Promise<void> {
 
 	recordStateSizeTelemetry(Buffer.byteLength(stateJson, "utf8"))
 
-	// FIRE-AND-FORGET: do not await delivery to the webview (it may be hidden/reloaded/closed
-	// and postMessage can hang or resolve false). The webview reconciles convergently from
-	// whatever state snapshots it receives, gated by stateVersion/epoch.
-	for (const responseStream of activeStateSubscriptions) {
-		responseStream(
-			{
-				stateJson,
-			},
-			false, // Not the last message
-		).catch((error) => {
-			Logger.error("Error sending state update:", error)
-			activeStateSubscriptions.delete(responseStream)
-		})
+	// Delivery remains fire-and-forget: a hidden or disconnected webview must not
+	// block the producer. Keep one in-flight write and only the newest queued
+	// snapshot per subscriber; stateVersion/epoch make intermediate states redundant.
+	for (const subscription of activeStateSubscriptions) {
+		void deliverState(subscription, stateJson)
 	}
 }
 

@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto"
 import { Controller } from "@core/controller"
-import { StreamingResponseHandler } from "@core/controller/grpc-handler"
+import { getRequestRegistry, type StreamingResponseHandler } from "@core/controller/grpc-handler"
 import { addProtobusServices } from "@generated/hosts/standalone/protobus-server-setup"
 import * as grpc from "@grpc/grpc-js"
 
@@ -87,22 +88,24 @@ function wrapStreamingResponseHandler<TRequest, TResponse>(
 ): grpc.handleServerStreamingCall<TRequest, TResponse> {
 	return async (call: grpc.ServerWritableStream<TRequest, TResponse>) => {
 		try {
-			const requestId = call.metadata.get("request-id").pop()?.toString()
+			const requestId = call.metadata.get("request-id").pop()?.toString() ?? randomUUID()
+			call.once("close", () => getRequestRegistry().cancelRequest(requestId))
 			log(`ProtoBus gRPC streaming request: ${call.getPath()}`)
 
-			const responseHandler: StreamingResponseHandler<TResponse> = (response, isLast, _sequenceNumber) => {
-				try {
-					call.write(response) // Use a bound version of call.write to maintain proper 'this' context
-
-					if (isLast === true) {
-						log(`Closing ProtoBus stream for ${requestId}`)
-						call.end()
-					}
-					return Promise.resolve()
-				} catch (error) {
-					return Promise.reject(error)
-				}
-			}
+			const responseHandler: StreamingResponseHandler<TResponse> = (response, isLast, _sequenceNumber) =>
+				new Promise<void>((resolve, reject) => {
+					call.write(response, (error?: Error | null) => {
+						if (error) {
+							reject(error)
+							return
+						}
+						if (isLast === true) {
+							log(`Closing ProtoBus stream for ${requestId}`)
+							call.end()
+						}
+						resolve()
+					})
+				})
 			await handler(controller, call.request, responseHandler, requestId)
 		} catch (err: any) {
 			log(`ProtoBus handler error: ${call.getPath()}\n${err.stack}`)

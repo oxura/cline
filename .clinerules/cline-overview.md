@@ -112,6 +112,14 @@ The `Controller` class manages multiple types of persistent storage:
 
 The `Controller` handles the distribution of state to both the core extension and webview components. It also coordinates state across multiple extension instances, ensuring consistency.
 
+State subscriptions keep at most one in-flight response and the newest pending
+snapshot per subscriber. A slow or hidden client does not block state production
+or other subscribers, and intermediate snapshots are coalesced rather than
+queued indefinitely. Clients use `stateVersion`/epoch to reconcile snapshots.
+Cancelling or failing a subscription discards its pending snapshot.
+The standalone gRPC transport waits for each write callback before accepting the
+next state response and cancels the registered subscription when its stream closes.
+
 State synchronization between instances is handled through:
 - File-based storage for task history and conversation data
 - VSCode's global state API for settings and configuration
